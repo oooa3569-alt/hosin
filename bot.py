@@ -6,7 +6,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 # ================== CONFIG ==================
-BOT_TOKEN = "8040860578:AAHKb0r7J7FBdu5OqA0tg-XbvsLR0MGQ4b4"
+BOT_TOKEN = "PUT_YOUR_TOKEN_HERE"
 WEBHOOK_URL = "https://hosin-q20k.onrender.com/webhook"
 OWNER_ID = 7635779264
 # ===========================================
@@ -20,15 +20,14 @@ MORNING_DUA = """🌅 أذكار الصباح
 أَعُوذُ بِاللهِ مِنْ الشَّيْطَانِ الرَّجِيمِ
 اللّهُ لاَ إِلَـهَ إِلاَّ هُوَ الْحَيُّ الْقَيُّومُ...
 
-🤍 نبضة حياة
+     
 """
 
 EVENING_DUA = """🌙 أذكار المساء
 
 أَعُوذُ بِاللهِ مِنْ الشَّيْطَانِ الرَّجِيمِ
 اللّهُ لاَ إِلَـهَ إِلاَّ هُوَ الْحَيُّ الْقَيُّومُ...
-
-🤍 نبضة حياة
+    
 """
 
 # ================== APP ==================
@@ -36,7 +35,7 @@ app = Flask(__name__)
 application = Application.builder().token(BOT_TOKEN).build()
 scheduler = BackgroundScheduler()
 
-# event loop ثابت
+# 🔑 event loop ثابت
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
@@ -55,7 +54,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         "🤖 بوت أذكار الصباح والمساء\n\n"
-        
+   
         "🤲 لا تنسوا الدعاء لمن كان سبباً في هذا الخير: @mohamedelhocine\n"
         "🛠️ الصانع: @Mik_emm"
     )
@@ -74,37 +73,40 @@ async def send_morning():
 async def send_evening():
     await broadcast(EVENING_DUA)
 
-# ================== SILENT HEARTBEAT ==================
+# ================== HEARTBEAT ==================
 def heartbeat():
-    logging.info("🤍 Heartbeat: bot alive")
+    logging.info("🤍 Heartbeat: alive")
 
 # ================== WEBHOOK ==================
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json(force=True)
     update = Update.de_json(data, application.bot)
+
     asyncio.run_coroutine_threadsafe(
-        application.process_update(update), loop
+        application.process_update(update),
+        loop
     )
+
     return "ok"
 
 # ================== MAIN ==================
 if __name__ == "__main__":
     application.add_handler(CommandHandler("start", start))
 
-    # تشغيل التطبيق فعلياً (المفتاح المفقود)
+    # 🔥 تشغيل التطبيق فعلياً
     loop.run_until_complete(application.initialize())
     loop.run_until_complete(application.start())
 
-    # جدولة الأذكار
     scheduler.add_job(lambda: asyncio.run(send_morning()), "cron", hour=8, minute=30)
     scheduler.add_job(lambda: asyncio.run(send_evening()), "cron", hour=16, minute=0)
-
-    # نبضة حياة داخلية صامتة
     scheduler.add_job(heartbeat, "interval", minutes=10)
+
     scheduler.start()
 
-    loop.run_until_complete(application.bot.set_webhook(WEBHOOK_URL))
+    loop.run_until_complete(
+        application.bot.set_webhook(WEBHOOK_URL)
+    )
 
     app.run(host="0.0.0.0", port=8443)
 
