@@ -1,131 +1,104 @@
 import asyncio
+import logging
 from flask import Flask, request
-from telegram import Update
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    ContextTypes,
-)
 from apscheduler.schedulers.background import BackgroundScheduler
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
 
-# ================= CONFIG =================
+# ================== CONFIG ==================
 BOT_TOKEN = "8040860578:AAHKb0r7J7FBdu5OqA0tg-XbvsLR0MGQ4b4"
-OWNER_ID = 7635779264
+WEBHOOK_URL = "https://hosin-q20k.onrender.com/webhook"
 
-WEBHOOK_PATH = "/webhook"
-WEBHOOK_URL = "https://hosin-q20k.onrender.com" + WEBHOOK_PATH
-PORT = 10000  # Render port
+OWNER_ID = 7635779264  # انت فقط
+# ===========================================
 
-# ========================================
+logging.basicConfig(level=logging.INFO)
+
 active_chats = set()
 
-MORNING_DUA = """
-🌅 أذكار الصباح
+MORNING_DUA = """🌅 أذكار الصباح
 
 أَعُوذُ بِاللهِ مِنْ الشَّيْطَانِ الرَّجِيمِ
-اللّهُ لاَ إِلَـهَ إِلاَّ هُوَ الْحَيُّ الْقَيُّومُ
-
-قُلْ هُوَ ٱللَّهُ أَحَدٌ (3 مرات)
-قُلْ أَعُوذُ بِرَبِّ ٱلْفَلَقِ (3 مرات)
-قُلْ أَعُوذُ بِرَبِّ ٱلنَّاسِ (3 مرات)
-
-سُبْحـانَ اللهِ وَبِحَمْـدِهِ (100)
+اللّهُ لاَ إِلَـهَ إِلاَّ هُوَ الْحَيُّ الْقَيُّومُ...
 
 🤍 نبضة حياة
 """
 
-EVENING_DUA = """
-🌙 أذكار المساء
+EVENING_DUA = """🌙 أذكار المساء
 
 أَعُوذُ بِاللهِ مِنْ الشَّيْطَانِ الرَّجِيمِ
-اللّهُ لاَ إِلَـهَ إِلاَّ هُوَ الْحَيُّ الْقَيُّومُ
-
-قُلْ هُوَ ٱللَّهُ أَحَدٌ (3 مرات)
-قُلْ أَعُوذُ بِرَبِّ ٱلْفَلَقِ (3 مرات)
-قُلْ أَعُوذُ بِرَبِّ ٱلنَّاسِ (3 مرات)
-
-سُبْحـانَ اللهِ وَبِحَمْـدِهِ (100)
+اللّهُ لاَ إِلَـهَ إِلاَّ هُوَ الْحَيُّ الْقَيُّومُ...
 
 🤍 نبضة حياة
 """
 
-# ================= APP =================
+# ================== APP ==================
 app = Flask(__name__)
 application = Application.builder().token(BOT_TOKEN).build()
 scheduler = BackgroundScheduler()
 
-# ================= START =================
+# ================== START ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
 
-    # ====== الخاص: الجميع ======
+    # في الخاص: الجميع
     if chat.type == "private":
         active_chats.add(chat.id)
 
-        await update.message.reply_text(
-            "🤖 بوت أذكار الصباح والمساء\n\n"
-           
-            "🤲 لا تنسوا الدعاء لمن كان سبباً في هذا الخير: @mohamedelhocine\n"
-            "🛠️ الصانع: @Mik_emm"
-        )
-        return
-
-    # ====== المجموعات ======
-    try:
-        member = await context.bot.get_chat_member(chat.id, user.id)
-        is_admin = member.status in ["administrator", "creator"]
-    except:
-        is_admin = False
-
-    if is_admin or user.id == OWNER_ID:
+    # في المجموعات: انت فقط
+    elif chat.type in ["group", "supergroup"]:
+        if user.id != OWNER_ID:
+            return
         active_chats.add(chat.id)
-        await update.message.reply_text(
-            "✅ تم تفعيل أذكار الصباح والمساء في هذه المجموعة."
-        )
-    else:
-        await update.message.reply_text(
-            "⛔ هذا الأمر مخصص للمشرفين فقط."
-        )
 
-# ================= BROADCAST =================
+    await update.message.reply_text(
+        "🤖 بوت أذكار الصباح والمساء\n\n"
+   
+        "🤲 لا تنسوا الدعاء لمن كان سبباً في هذا الخير: @mohamedelhocine\n"
+        "🛠️ الصانع: @Mik_emm"
+    )
+
+# ================== BROADCAST ==================
 async def broadcast(text):
     for chat_id in list(active_chats):
         try:
             await application.bot.send_message(chat_id, text)
-        except:
-            pass
+        except Exception as e:
+            logging.warning(f"Failed to send to {chat_id}: {e}")
 
-def send_morning():
-    asyncio.run(broadcast(MORNING_DUA))
+async def send_morning():
+    await broadcast(MORNING_DUA)
 
-def send_evening():
-    asyncio.run(broadcast(EVENING_DUA))
+async def send_evening():
+    await broadcast(EVENING_DUA)
 
-# ================= WEBHOOK =================
-@app.route(WEBHOOK_PATH, methods=["POST"])
+# ================== SILENT HEARTBEAT ==================
+def heartbeat():
+    logging.info("🤍 Heartbeat: bot alive")
+
+# ================== WEBHOOK ==================
+@app.route("/webhook", methods=["POST"])
 def webhook():
     update = Update.de_json(request.get_json(force=True), application.bot)
-    application.create_task(application.process_update(update))
+    asyncio.get_event_loop().create_task(application.process_update(update))
     return "ok"
 
-# ================= MAIN =================
-async def main():
+# ================== MAIN ==================
+if __name__ == "__main__":
     application.add_handler(CommandHandler("start", start))
 
-    await application.initialize()
-    await application.bot.set_webhook(WEBHOOK_URL)
-    await application.start()
+    # أذكار الصباح 08:30
+    scheduler.add_job(lambda: asyncio.run(send_morning()), "cron", hour=8, minute=30)
 
-    # ⏰ 08:30 صباحاً
-    scheduler.add_job(send_morning, "cron", hour=8, minute=30)
+    # أذكار المساء 16:00
+    scheduler.add_job(lambda: asyncio.run(send_evening()), "cron", hour=16, minute=0)
 
-    # ⏰ 16:00 مساءً
-    scheduler.add_job(send_evening, "cron", hour=16, minute=0)
+    # نبضة حياة صامتة كل 10 دقائق (داخلية فقط)
+    scheduler.add_job(heartbeat, "interval", minutes=10)
 
     scheduler.start()
 
-if __name__ == "__main__":
-    asyncio.run(main())
-    app.run(host="0.0.0.0", port=PORT)
+    asyncio.run(application.bot.set_webhook(WEBHOOK_URL))
+    app.run(host="0.0.0.0", port=8443)
 
