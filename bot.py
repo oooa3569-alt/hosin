@@ -8,8 +8,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 # ================== CONFIG ==================
 BOT_TOKEN = "8040860578:AAHKb0r7J7FBdu5OqA0tg-XbvsLR0MGQ4b4"
 WEBHOOK_URL = "https://hosin-q20k.onrender.com/webhook"
-
-OWNER_ID = 7635779264  # انت فقط
+OWNER_ID = 7635779264
 # ===========================================
 
 logging.basicConfig(level=logging.INFO)
@@ -37,24 +36,26 @@ app = Flask(__name__)
 application = Application.builder().token(BOT_TOKEN).build()
 scheduler = BackgroundScheduler()
 
+# event loop ثابت
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+
 # ================== START ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
 
-    # في الخاص: الجميع
     if chat.type == "private":
         active_chats.add(chat.id)
 
-    # في المجموعات: انت فقط
-    elif chat.type in ["group", "supergroup"]:
+    elif chat.type in ("group", "supergroup"):
         if user.id != OWNER_ID:
             return
         active_chats.add(chat.id)
 
     await update.message.reply_text(
         "🤖 بوت أذكار الصباح والمساء\n\n"
-   
+        
         "🤲 لا تنسوا الدعاء لمن كان سبباً في هذا الخير: @mohamedelhocine\n"
         "🛠️ الصانع: @Mik_emm"
     )
@@ -65,7 +66,7 @@ async def broadcast(text):
         try:
             await application.bot.send_message(chat_id, text)
         except Exception as e:
-            logging.warning(f"Failed to send to {chat_id}: {e}")
+            logging.warning(f"Send failed {chat_id}: {e}")
 
 async def send_morning():
     await broadcast(MORNING_DUA)
@@ -80,25 +81,30 @@ def heartbeat():
 # ================== WEBHOOK ==================
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    update = Update.de_json(request.get_json(force=True), application.bot)
-    asyncio.get_event_loop().create_task(application.process_update(update))
+    data = request.get_json(force=True)
+    update = Update.de_json(data, application.bot)
+    asyncio.run_coroutine_threadsafe(
+        application.process_update(update), loop
+    )
     return "ok"
 
 # ================== MAIN ==================
 if __name__ == "__main__":
     application.add_handler(CommandHandler("start", start))
 
-    # أذكار الصباح 08:30
-    scheduler.add_job(lambda: asyncio.run(send_morning()), "cron", hour=8, minute=30)
+    # تشغيل التطبيق فعلياً (المفتاح المفقود)
+    loop.run_until_complete(application.initialize())
+    loop.run_until_complete(application.start())
 
-    # أذكار المساء 16:00
+    # جدولة الأذكار
+    scheduler.add_job(lambda: asyncio.run(send_morning()), "cron", hour=8, minute=30)
     scheduler.add_job(lambda: asyncio.run(send_evening()), "cron", hour=16, minute=0)
 
-    # نبضة حياة صامتة كل 10 دقائق (داخلية فقط)
+    # نبضة حياة داخلية صامتة
     scheduler.add_job(heartbeat, "interval", minutes=10)
-
     scheduler.start()
 
-    asyncio.run(application.bot.set_webhook(WEBHOOK_URL))
+    loop.run_until_complete(application.bot.set_webhook(WEBHOOK_URL))
+
     app.run(host="0.0.0.0", port=8443)
 
