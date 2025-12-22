@@ -6,7 +6,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 # ================== CONFIG ==================
-BOT_TOKEN = "PUT_YOUR_TOKEN_HERE"
+BOT_TOKEN = "8040860578:AAHKb0r7J7FBdu5OqA0tg-XbvsLR0MGQ4b4"
 WEBHOOK_URL = "https://hosin-q20k.onrender.com/webhook"
 OWNER_ID = 7635779264
 # ===========================================
