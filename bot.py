@@ -1,5 +1,6 @@
-import logging
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
+import asyncio
+from datetime import time
+from flask import Flask, request
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -7,46 +8,49 @@ from telegram.ext import (
     ContextTypes,
 )
 
-# ================== CONFIG ==================
+# ================== الإعدادات ==================
 BOT_TOKEN = "8260168982:AAEy-YQDWa-yTqJKmsA_yeSuNtZb8qNeHAI"
-OWNER_ID = 7635779264  # ايديك فقط
-# ============================================
+OWNER_ID = 7635779264
 
-logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
+WEBHOOK_URL = "https://hosin-q20k.onrender.com/webhook"
+SECRET_TOKEN = "my_secret_token"
 
-active_chats = set()
+PORT = 10000
 
 # ================== الأذكار ==================
-MORNING_DUA = """🌅 أذكار الصباح
+MORNING_AZKAR = """
+🌅 أذكار الصباح
 
-🤍 نبضة حياة
+☀️ اللّهـمَّ أَنْتَ رَبِّـي لا إلهَ إلاّ أَنْتَ
+📿 سبحان الله وبحمده (100 مرة)
 """
 
-EVENING_DUA = """🌙 أذكار المساء
+EVENING_AZKAR = """
+🌙 أذكار المساء
 
-🤍 نبضة حياة
+🌌 اللّهـمَّ أَمْسَيْنَا وَأَمْسَى المُلكُ لله
+📿 سبحان الله وبحمده (100 مرة)
 """
 
-# ================== /start ==================
+# ================== Flask ==================
+app = Flask(__name__)
+
+# ================== Telegram App ==================
+application = Application.builder().token(BOT_TOKEN).build()
+
+# ================== أمر /start ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
 
-    # الخاص: الجميع
-    if chat.type == "private":
-        active_chats.add(chat.id)
-
-    # المجموعات: أنت + الأدمن فقط
-    elif chat.type in ("group", "supergroup"):
-        if user.id != OWNER_ID:
-            return
+    # في الجروبات: فقط أنت أو الأدمن
+    if chat.type != "private":
         member = await context.bot.get_chat_member(chat.id, user.id)
-        if member.status not in ("administrator", "creator"):
+        if user.id != OWNER_ID and member.status not in ["administrator", "creator"]:
             return
-        active_chats.add(chat.id)
+
+    # حفظ الشات لإرسال الأذكار
+    context.application.chat_data[chat.id] = True
 
     await update.message.reply_text(
         "🤖 بوت أذكار الصباح والمساء\n\n"
@@ -54,40 +58,58 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🛠️ الصانع: @Mik_emm"
     )
 
-# ================== الإرسال ==================
-async def broadcast(app: Application, text: str):
-    for chat_id in list(active_chats):
+# ================== إرسال الأذكار ==================
+async def send_morning(context: ContextTypes.DEFAULT_TYPE):
+    for chat_id in context.application.chat_data:
         try:
-            await app.bot.send_message(chat_id, text)
-        except Exception as e:
-            logging.warning(f"فشل الإرسال إلى {chat_id}: {e}")
-            active_chats.discard(chat_id)
+            await context.bot.send_message(chat_id, MORNING_AZKAR)
+        except:
+            pass
 
-async def send_morning(app: Application):
-    await broadcast(app, MORNING_DUA)
+async def send_evening(context: ContextTypes.DEFAULT_TYPE):
+    for chat_id in context.application.chat_data:
+        try:
+            await context.bot.send_message(chat_id, EVENING_AZKAR)
+        except:
+            pass
 
-async def send_evening(app: Application):
-    await broadcast(app, EVENING_DUA)
+# ================== Webhook ==================
+@app.route("/webhook", methods=["POST"])
+async def webhook():
+    if request.headers.get("X-Telegram-Bot-Api-Secret-Token") != SECRET_TOKEN:
+        return "Unauthorized", 403
 
-# ================== نبضة حياة ==================
-def heartbeat():
-    logging.info("🤍 bot alive")
+    update = Update.de_json(request.json, application.bot)
+    await application.process_update(update)
+    return "OK", 200
 
-# ================== MAIN ==================
+# ================== Health Check ==================
+@app.route("/health")
+def health():
+    return "OK", 200
+
+# ================== التشغيل ==================
 async def main():
-    app = Application.builder().token(BOT_TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
 
-    app.add_handler(CommandHandler("start", start))
+    application.job_queue.run_daily(
+        send_morning,
+        time(hour=8, minute=30)
+    )
 
-    scheduler = AsyncIOScheduler(timezone="Africa/Cairo")
-    scheduler.add_job(send_morning, "cron", hour=8, minute=30, args=[app])
-    scheduler.add_job(send_evening, "cron", hour=16, minute=0, args=[app])
-    scheduler.add_job(heartbeat, "interval", minutes=10)
-    scheduler.start()
+    application.job_queue.run_daily(
+        send_evening,
+        time(hour=16, minute=0)
+    )
 
-    logging.info("✅ البوت شغال بـ Polling")
-    await app.run_polling()
+    await application.initialize()
+    await application.bot.set_webhook(
+        url=WEBHOOK_URL,
+        secret_token=SECRET_TOKEN,
+        drop_pending_updates=True
+    )
 
 if __name__ == "__main__":
-    import asyncio
+    print("🚀 Bot is running...")
     asyncio.run(main())
+    app.run(host="0.0.0.0", port=PORT)
