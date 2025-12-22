@@ -5,8 +5,8 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 # ================== CONFIG ==================
-BOT_TOKEN = "PUT_YOUR_NEW_BOT_TOKEN_HERE"
-WEBHOOK_URL = "https://your-real-domain.com/webhook"
+BOT_TOKEN = "8040860578:AAHKb0r7J7FBdu5OqA0tg-XbvsLR0MGQ4b4"
+WEBHOOK_URL = "https://hosin-q20k.onrender.com"
 
 # ===========================================
 active_chats = set()
