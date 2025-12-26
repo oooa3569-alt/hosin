@@ -91,69 +91,58 @@ is_running = False
 last_sent = {}
 bot_lock = threading.Lock()
 
-# ========== تهيئة البوت ==========
-def get_bot():
-    """الحصول على كائن البوت (تهيئته عند الحاجة)"""
-    global bot_instance
-    
-    with bot_lock:
-        if bot_instance is None:
-            try:
-                # إنشاء البوت مع إعدادات بسيطة
-                bot_instance = Bot(token=TELEGRAM_TOKEN)
-                logger.info("✅ تم إنشاء كائن البوت بنجاح")
-                return bot_instance
-            except Exception as e:
-                logger.error(f"❌ خطأ في إنشاء البوت: {e}")
-                return None
-        return bot_instance
-
-# ========== وظائف المساعدة ==========
-def send_message_sync(chat_id, text, parse_mode='Markdown'):
-    """إرسال رسالة بشكل متزامن"""
-    bot = get_bot()
-    if not bot:
-        logger.error("❌ لا يمكن إرسال الرسالة: البوت غير مهيأ")
-        return False
-    
+# ========== وظائف متزامنة مباشرة ==========
+def create_bot():
+    """إنشاء كائن البوت"""
     try:
-        # استخدام asyncio في خيط منفصل
-        async def send():
+        bot = Bot(token=TELEGRAM_TOKEN)
+        logger.info("✅ تم إنشاء كائن البوت")
+        return bot
+    except Exception as e:
+        logger.error(f"❌ خطأ في إنشاء البوت: {e}")
+        return None
+
+def send_message_simple(chat_id, text, parse_mode='Markdown'):
+    """إرسال رسالة بشكل مباشر ومتزامن"""
+    try:
+        bot = create_bot()
+        if not bot:
+            logger.error("❌ فشل في إنشاء البوت")
+            return False
+        
+        # استخدام asyncio.run مباشرة
+        async def send_async():
             await bot.send_message(
                 chat_id=chat_id,
                 text=text,
                 parse_mode=parse_mode
             )
         
-        # تشغيل في حدث جديد
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(send())
-        loop.close()
-        
+        # إرسال الرسالة بشكل متزامن
+        asyncio.run(send_async())
         logger.info(f"✅ تم إرسال رسالة إلى {chat_id}")
         return True
     except Exception as e:
         logger.error(f"❌ خطأ في إرسال الرسالة: {e}")
         return False
 
-def send_dhikr_to_all_sync(text):
+def send_dhikr_to_groups(text):
     """إرسال ذكر إلى جميع المجموعات"""
-    logger.info("📤 محاولة إرسال ذكر إلى جميع المجموعات")
+    logger.info("📤 إرسال ذكر إلى المجموعات")
     
     success_count = 0
     for group_id in GROUPS:
-        if send_message_sync(group_id, text):
+        if send_message_simple(group_id, text):
             success_count += 1
-            time.sleep(0.5)  # انتظر نصف ثانية بين المجموعات
+            time.sleep(1)  # انتظر ثانية بين المجموعات
     
-    logger.info(f"✅ تم إرسال الذكر إلى {success_count} من {len(GROUPS)} مجموعات")
+    logger.info(f"✅ تم إرسال الذكر إلى {success_count} مجموعات")
     return success_count > 0
 
 # ========== معالجة الأوامر ==========
 def handle_start_command(chat_id, chat_type, user_id, user_name):
     """معالجة أمر /start"""
-    logger.info(f"🎯 معالجة /start من {user_id} ({user_name}) في {chat_type}")
+    logger.info(f"🎯 /start من {user_name} ({user_id}) في {chat_type}")
     
     response_text = (
         "🤖 بوت أذكار الصباح والمساء\n\n"
@@ -173,10 +162,10 @@ def handle_start_command(chat_id, chat_type, user_id, user_name):
     )
     
     if should_respond:
-        return send_message_sync(chat_id, response_text)
+        return send_message_simple(chat_id, response_text)
     else:
-        logger.info(f"⏭️ تخطي رد على {user_id} في المجموعة (ليس أدمن)")
-        return True  # نجاح لأننا قصدنا عدم الرد
+        logger.info(f"⏭️ تخطي رد على {user_id} في المجموعة")
+        return True
 
 def handle_help_command(chat_id, chat_type, user_id):
     """معالجة أمر /help"""
@@ -187,15 +176,13 @@ def handle_help_command(chat_id, chat_type, user_id):
         "🛠️ الصانع: @Mik_emm"
     )
     
-    # في الخاص: يرد على الجميع
-    # في المجموعة: يرد فقط على الأدمن
     should_respond = (
         chat_type == "private" or 
         (chat_type in ["group", "supergroup"] and user_id == ADMIN_ID)
     )
     
     if should_respond:
-        return send_message_sync(chat_id, response_text)
+        return send_message_simple(chat_id, response_text)
     else:
         return True
 
@@ -209,15 +196,13 @@ def handle_status_command(chat_id, chat_type, user_id):
         f"🛠️ الصانع: @Mik_emm"
     )
     
-    # في الخاص: يرد على الجميع
-    # في المجموعة: يرد فقط على الأدمن
     should_respond = (
         chat_type == "private" or 
         (chat_type in ["group", "supergroup"] and user_id == ADMIN_ID)
     )
     
     if should_respond:
-        return send_message_sync(chat_id, status_text)
+        return send_message_simple(chat_id, status_text)
     else:
         return True
 
@@ -239,7 +224,7 @@ def scheduler_worker():
                 key not in last_sent):
                 
                 logger.info("⏰ وقت أذكار الصباح")
-                send_dhikr_to_all_sync(MORNING_DHIKR)
+                send_dhikr_to_groups(MORNING_DHIKR)
                 last_sent[key] = now
             
             # أذكار المساء 4:00
@@ -249,7 +234,7 @@ def scheduler_worker():
                 key not in last_sent):
                 
                 logger.info("⏰ وقت أذكار المساء")
-                send_dhikr_to_all_sync(EVENING_DHIKR)
+                send_dhikr_to_groups(EVENING_DHIKR)
                 last_sent[key] = now
             
             # ذكر النوم 11:00
@@ -259,10 +244,10 @@ def scheduler_worker():
                 key not in last_sent):
                 
                 logger.info("⏰ وقت ذكر النوم")
-                send_dhikr_to_all_sync(SLEEP_DHIKR)
+                send_dhikr_to_groups(SLEEP_DHIKR)
                 last_sent[key] = now
             
-            # تنظيف السجل القديم (بعد 24 ساعة)
+            # تنظيف السجل القديم
             keys_to_remove = []
             for k, sent_time in last_sent.items():
                 if (now - sent_time).days >= 1:
@@ -271,7 +256,7 @@ def scheduler_worker():
             for k in keys_to_remove:
                 del last_sent[k]
             
-            time.sleep(60)  # فحص كل دقيقة
+            time.sleep(60)
             
         except Exception as e:
             logger.error(f"❌ خطأ في الجدولة: {e}")
@@ -310,33 +295,34 @@ def webhook():
     """معالجة طلبات ويب هوك"""
     try:
         data = request.get_json()
-        if not data or 'message' not in data:
+        if not data:
             return jsonify({"status": "no_data"}), 400
         
-        message = data['message']
-        
-        # التأكد من وجود الحقول المطلوبة
-        if 'chat' not in message or 'from' not in message or 'text' not in message:
-            return jsonify({"status": "invalid_data"}), 400
-        
-        chat = message['chat']
-        user = message['from']
-        
-        chat_id = chat['id']
-        chat_type = chat['type']
-        user_id = user['id']
-        user_name = user.get('first_name', 'المستخدم')
-        text = message['text'].lower()
-        
-        logger.info(f"📩 استقبال: {text} من {user_id} في {chat_type}")
-        
-        # معالجة الأوامر
-        if text.startswith('/start'):
-            handle_start_command(chat_id, chat_type, user_id, user_name)
-        elif text.startswith('/help'):
-            handle_help_command(chat_id, chat_type, user_id)
-        elif text.startswith('/status'):
-            handle_status_command(chat_id, chat_type, user_id)
+        if 'message' in data:
+            message = data['message']
+            
+            # استخراج البيانات الأساسية
+            chat_id = message['chat']['id']
+            chat_type = message['chat']['type']
+            user_id = message['from']['id']
+            user_name = message['from'].get('first_name', 'المستخدم')
+            text = message.get('text', '').lower()
+            
+            logger.info(f"📩 استقبال: {text} من {user_id}")
+            
+            # معالجة الأوامر
+            if text.startswith('/start'):
+                success = handle_start_command(chat_id, chat_type, user_id, user_name)
+                if success:
+                    logger.info(f"✅ تم الرد على /start لـ {user_id}")
+                else:
+                    logger.error(f"❌ فشل في الرد على /start لـ {user_id}")
+                    
+            elif text.startswith('/help'):
+                handle_help_command(chat_id, chat_type, user_id)
+                
+            elif text.startswith('/status'):
+                handle_status_command(chat_id, chat_type, user_id)
         
         return jsonify({"status": "ok"})
         
@@ -348,24 +334,27 @@ def webhook():
 def start_bot():
     """بدء البوت"""
     try:
-        # التأكد من تهيئة البوت
-        get_bot()
-        
         # بدء الجدولة
         start_scheduler()
         
-        # إرسال رسالة تأكيد للأدمن
-        send_message_sync(
+        # إرسال رسالة تأكيد
+        success = send_message_simple(
             ADMIN_ID,
             "🤖 بوت الأذكار يعمل الآن\n"
             "✅ تم تهيئة البوت بنجاح\n"
             "🛠️ الصانع: @Mik_emm"
         )
         
-        return jsonify({
-            "success": True,
-            "message": "✅ تم تشغيل البوت بنجاح"
-        })
+        if success:
+            return jsonify({
+                "success": True,
+                "message": "✅ تم تشغيل البوت بنجاح"
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "message": "⚠️ تم بدء البوت ولكن فشل في إرسال تأكيد"
+            })
         
     except Exception as e:
         logger.error(f"❌ خطأ في بدء البوت: {e}")
@@ -378,7 +367,7 @@ def start_bot():
 def test_bot():
     """اختبار البوت"""
     try:
-        success = send_message_sync(
+        success = send_message_simple(
             ADMIN_ID,
             "✅ اختبار البوت\n"
             "الحالة: ✅ يعمل بنجاح\n"
@@ -406,21 +395,17 @@ def test_bot():
 def set_webhook():
     """تعيين ويب هوك"""
     try:
-        bot = get_bot()
+        bot = create_bot()
         if not bot:
             return jsonify({
                 "success": False,
-                "message": "❌ البوت غير مهيأ"
+                "message": "❌ فشل في إنشاء البوت"
             })
         
-        # إرسال طلب تعيين ويب هوك
-        async def set_wh():
+        async def set_webhook_async():
             await bot.set_webhook(WEBHOOK_URL)
         
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(set_wh())
-        loop.close()
+        asyncio.run(set_webhook_async())
         
         return jsonify({
             "success": True,
@@ -436,48 +421,45 @@ def set_webhook():
         })
 
 # ========== الإعداد الأولي ==========
-def initialize_bot():
+def initialize():
     """الإعداد الأولي للبوت"""
     logger.info("🚀 بدء تهيئة البوت...")
     
-    # 1. تهيئة البوت
-    bot = get_bot()
-    if not bot:
-        logger.error("❌ فشل في تهيئة البوت")
-        return False
-    
-    # 2. تعيين ويب هوك
+    # 1. تعيين ويب هوك
     try:
-        async def set_webhook_async():
-            await bot.set_webhook(WEBHOOK_URL)
-        
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(set_webhook_async())
-        loop.close()
-        
-        logger.info(f"✅ تم تعيين ويب هوك: {WEBHOOK_URL}")
+        bot = create_bot()
+        if bot:
+            async def set_webhook_async():
+                await bot.set_webhook(WEBHOOK_URL)
+            
+            asyncio.run(set_webhook_async())
+            logger.info(f"✅ تم تعيين ويب هوك: {WEBHOOK_URL}")
+        else:
+            logger.error("❌ فشل في تعيين ويب هوك - البوت غير منشأ")
     except Exception as e:
         logger.error(f"⚠️ تحذير في تعيين ويب هوك: {e}")
     
-    # 3. بدء الجدولة
+    # 2. بدء الجدولة
     start_scheduler()
     
-    # 4. إرسال رسالة بدء التشغيل
-    send_message_sync(
-        ADMIN_ID,
-        "🤖 بوت الأذكار يعمل الآن\n"
-        "✅ تم بدء تشغيل البوت بنجاح\n"
-        "🛠️ الصانع: @Mik_emm"
-    )
+    # 3. إرسال رسالة بدء التشغيل (في خيط منفصل)
+    def send_startup_message():
+        time.sleep(2)  # انتظر قليلاً
+        send_message_simple(
+            ADMIN_ID,
+            "🤖 بوت الأذكار يعمل الآن\n"
+            "✅ تم بدء تشغيل البوت بنجاح\n"
+            "🛠️ الصانع: @Mik_emm"
+        )
     
-    logger.info("✅ تم تهيئة البوت بنجاح")
-    return True
+    threading.Thread(target=send_startup_message, daemon=True).start()
+    
+    logger.info("✅ تم تهيئة البوت")
 
 # ========== التشغيل الرئيسي ==========
 if __name__ == '__main__':
     # تهيئة البوت
-    initialize_bot()
+    initialize()
     
     # تشغيل الخادم
     port = int(os.environ.get('PORT', 10000))
