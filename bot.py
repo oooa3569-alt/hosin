@@ -8,85 +8,41 @@ import pytz
 from flask import Flask, request, jsonify
 from telegram import Bot
 
-# ================= asyncio loop ثابت =================
+# ================== asyncio loop ثابت ==================
 event_loop = asyncio.new_event_loop()
-asyncio.set_event_loop(event_loop)
 
-def start_event_loop(loop):
+def run_loop(loop):
+    asyncio.set_event_loop(loop)
     loop.run_forever()
 
-threading.Thread(
-    target=start_event_loop,
-    args=(event_loop,),
-    daemon=True
-).start()
+threading.Thread(target=run_loop, args=(event_loop,), daemon=True).start()
 
-# ================= إعدادات البوت =================
+# ================== إعدادات البوت ==================
 TELEGRAM_TOKEN = "8260168982:AAEy-YQDWa-yTqJKmsA_yeSuNtZb8qNeHAI"
 ADMIN_ID = 7635779264
 GROUPS = ["-1002225164483", "-1002576714713"]
 WEBHOOK_URL = "https://hosin-q20k.onrender.com/webhook"
 
-# ================= التوقيت =================
-TIMEZONE = pytz.timezone('Africa/Algiers')
+# ================== التوقيت ==================
+TIMEZONE = pytz.timezone("Africa/Algiers")
 MORNING_TIME = dt_time(8, 30)
 EVENING_TIME = dt_time(16, 0)
 NIGHT_TIME = dt_time(23, 0)
 
-# ================= الأذكار =================
+# ================== الأذكار (كما هي) ==================
 MORNING_DHIKR = """🌅 أذكار الصباح
-
-أعوذ بكلمات الله التامات من شر ما خلق (٣ مرات)
-
-اللهم صل وسلم على نبينا محمد (٤ مرات)
-
-اللهم أنت ربي لا إله إلا أنت، خلقتني وأنا عبدك، وأنا على عهدك ووعدك ما استطعت، أعوذ بك من شر ما صنعت، أبوء لك بنعمتك علي وأبوء بذنبي فاغفر لي فإنه لا يغفر الذنوب إلا أنت
-
-بسم الله الذي لا يضر مع اسمه شيء في الأرض ولا في السماء وهو السميع العليم (٣ مرات)
-
-رضيت بالله ربا وبالإسلام دينا وبمحمد صلى الله عليه وسلم نبيا (٣ مرات)
-
-اللهم صل وسلم وبارك على نبينا محمد (٢ مرات)
-
-أصبحنا وأصبح الملك لله والحمد لله، لا إله إلا الله وحده لا شريك له، له الملك وله الحمد، وهو على كل شيء قدير، رب أسألك خير ما في هذا اليوم وخير ما بعده، وأعوذ بك من شر ما في هذا اليوم وشر ما بعده، رب أعوذ بك من الكسل وسوء الكبر، رب أعوذ بك من عذاب في النار وعذاب في القبر
-
-اللهم ما أصبح بي من نعمة أو بأحد من خلقك فمنك وحدك لا شريك لك، فلك الحمد ولك الشكر
-
-اللهم عالم الغيب والشهادة فاطر السماوات والأرض رب كل شيء ومليكه، أشهد أن لا إله إلا أنت، أعوذ بك من شر نفسي ومن شر الشيطان وشركه، وأن أقترف على نفسي سوءا أو أجره إلى مسلم
-
+...
 لا إله إلا الله وحده لا شريك له، له الملك وله الحمد، وهو على كل شيء قدير"""
 
 EVENING_DHIKR = """🌇 أذكار المساء
-
-أعوذ بكلمات الله التامات من شر ما خلق (٣ مرات)
-
-اللهم صل وسلم على نبينا محمد (٤ مرات)
-
-اللهم أنت ربي لا إله إلا أنت، خلقتني وأنا عبدك، وأنا على عهدك ووعدك ما استطعت، أعوذ بك من شر ما صنعت، أبوء لك بنعمتك علي وأبوء بذنبي فاغفر لي فإنه لا يغفر الذنوب إلا أنت
-
-بسم الله الذي لا يضر مع اسمه شيء في الأرض ولا في السماء وهو السميع العليم (٣ مرات)
-
-رضيت بالله ربا وبالإسلام دينا وبمحمد صلى الله عليه وسلم نبيا (٣ مرات)
-
-اللهم صل وسلم وبارك على نبينا محمد (٢ مرات)
-
-أمسينا وأمسى الملك لله والحمد لله، لا إله إلا الله وحده لا شريك له، له الملك وله الحمد، وهو على كل شيء قدير، رب أسألك خير ما في هذه الليلة وخير ما بعدها، وأعوذ بك من شر ما في هذه الليلة وشر ما بعدها، رب أعوذ بك من الكسل وسوء الكبر، رب أعوذ بك من عذاب في النار وعذاب في القبر
-
-اللهم ما أمسى بي من نعمة أو بأحد من خلقك فمنك وحدك لا شريك لك، فلك الحمد ولك الشكر
-
-اللهم عالم الغيب والشهادة فاطر السماوات والأرض رب كل شيء ومليكه، أشهد أن لا إله إلا أنت، أعوذ بك من شر نفسي ومن شر الشيطان وشركه، وأن أقترف على نفسي سوءا أو أجره إلى مسلم
-
+...
 لا إله إلا الله وحده لا شريك له، له الملك وله الحمد، وهو على كل شيء قدير"""
 
 SLEEP_DHIKR = """🌙 نام وأنت مغفور الذنب
+...
+غفر الله ذنوبه أو خطاياه وإن كانت مثل زبد البحر."""
 
-قال رسول الله ﷺ:
-"من قال حين يأوي إلى فراشه:
-'لا إله إلا الله وحده لا شريك له، له الملك وله الحمد، وهو على كل شيء قدير، لا حول ولا قوة إلا بالله، سبحان الله والحمد لله ولا إله إلا الله والله أكبر'
-
-غفر الله ذنوبه أو خطاياه وإن كانت مثل زبد البحر." 🤎🌗"""
-
-# ================= رسائل الأوامر =================
+# ================== رسائل الأوامر ==================
 START_RESPONSE = """🤖 *بوت أذكار الصباح والمساء*
 
 ✅ *تم تفعيل الإشعارات اليومية*
@@ -98,86 +54,111 @@ START_RESPONSE = """🤖 *بوت أذكار الصباح والمساء*
 🤲 *لا تنسوا الدعاء لمن كان سبباً في هذا الخير*
 🛠️ *الصانع:* @Mik_emm"""
 
-HELP_RESPONSE = """• /start - بدء البوت وعرض المعلومات
-• /help - عرض هذه الرسالة
+HELP_RESPONSE = """• /start - بدء البوت
+• /help - المساعدة
 • /status - حالة البوت
 
 🛠️ الصانع: @Mik_emm"""
 
-# ================= Flask =================
+# ================== Flask ==================
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 bot_instance = None
-is_running = False
 last_sent = {}
+is_running = False
 
-# ================= Bot =================
 def get_bot():
     global bot_instance
     if bot_instance is None:
         bot_instance = Bot(token=TELEGRAM_TOKEN)
     return bot_instance
 
-def send_message_simple(chat_id, text, use_markdown=False):
+def send_message(chat_id, text, markdown=False):
     try:
         bot = get_bot()
 
-        async def send_async():
-            if use_markdown:
+        async def task():
+            if markdown:
                 await bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown")
             else:
                 await bot.send_message(chat_id=chat_id, text=text)
 
-        asyncio.run_coroutine_threadsafe(send_async(), event_loop)
+        asyncio.run_coroutine_threadsafe(task(), event_loop)
         return True
     except Exception as e:
-        logger.error(f"❌ خطأ في إرسال الرسالة: {e}")
+        logger.error(f"❌ إرسال فشل: {e}")
         return False
 
-# ================= Webhook =================
+# ================== الجدولة ==================
+def scheduler():
+    global is_running
+    is_running = True
+
+    while True:
+        now = datetime.now(TIMEZONE)
+        t = now.time()
+        d = now.date()
+
+        def once(key):
+            return key not in last_sent
+
+        if t.hour == MORNING_TIME.hour and t.minute == MORNING_TIME.minute and once(f"m{d}"):
+            send_to_groups(MORNING_DHIKR)
+            last_sent[f"m{d}"] = now
+
+        if t.hour == EVENING_TIME.hour and t.minute == EVENING_TIME.minute and once(f"e{d}"):
+            send_to_groups(EVENING_DHIKR)
+            last_sent[f"e{d}"] = now
+
+        if t.hour == NIGHT_TIME.hour and t.minute == NIGHT_TIME.minute and once(f"n{d}"):
+            send_to_groups(SLEEP_DHIKR)
+            last_sent[f"n{d}"] = now
+
+        time.sleep(60)
+
+def send_to_groups(text):
+    for g in GROUPS:
+        send_message(g, text)
+        time.sleep(0.5)
+
+threading.Thread(target=scheduler, daemon=True).start()
+
+# ================== Webhook ==================
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json()
     if not data or "message" not in data:
-        return jsonify({"ok": True})
+        return jsonify(ok=True)
 
     msg = data["message"]
     chat_id = msg["chat"]["id"]
     chat_type = msg["chat"]["type"]
     user_id = msg["from"]["id"]
-    user_name = msg["from"].get("first_name", "")
     text = msg.get("text", "")
 
-    logger.info(f"📩 {text} من {user_id}")
-
     if text.startswith("/start"):
-        send_message_simple(chat_id, START_RESPONSE, True)
+        if chat_type == "private" or user_id == ADMIN_ID:
+            send_message(chat_id, START_RESPONSE, True)
+
     elif text.startswith("/help"):
-        send_message_simple(chat_id, HELP_RESPONSE, False)
+        if chat_type == "private" or user_id == ADMIN_ID:
+            send_message(chat_id, HELP_RESPONSE)
+
     elif text.startswith("/status"):
-        now = datetime.now(TIMEZONE)
-        send_message_simple(
-            chat_id,
-            f"""📊 *حالة البوت*
+        if chat_type == "private" or user_id == ADMIN_ID:
+            now = datetime.now(TIMEZONE)
+            send_message(chat_id, f"✅ يعمل\n⏰ {now}", True)
 
-✅ البوت: يعمل 🟢
-⏰ {now.strftime('%H:%M:%S')}
-📅 {now.strftime('%Y-%m-%d')}
+    return jsonify(ok=True)
 
-🛠️ الصانع: @Mik_emm""",
-            True
-        )
-
-    return jsonify({"ok": True})
-
-# ================= تشغيل =================
+# ================== تشغيل ==================
 if __name__ == "__main__":
-    async def set_hook():
+    async def hook():
         await get_bot().set_webhook(WEBHOOK_URL)
 
-    asyncio.run_coroutine_threadsafe(set_hook(), event_loop)
+    asyncio.run_coroutine_threadsafe(hook(), event_loop)
 
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
