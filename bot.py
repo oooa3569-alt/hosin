@@ -15,7 +15,7 @@ GROUPS = ["-1002225164483", "-1002576714713"]  # قائمة المجموعات
 WEBHOOK_URL = "https://hosin-q20k.onrender.com/webhook"
 
 # ========== التوقيتات (توقيت الجزائر) ==========
-TIMEZONE = pytz.timezone('Africa/Algiers')  # تغيير من الرياض إلى الجزائر
+TIMEZONE = pytz.timezone('Africa/Algiers')
 MORNING_TIME = time(8, 30)    # 8:30 صباحاً
 NOON_DHIKR_TIME = time(12, 0)  # 12:00 ظهراً
 EVENING_TIME = time(16, 0)    # 4:00 مساءً
@@ -105,13 +105,29 @@ bot_instance = None
 application_instance = None
 scheduler_thread = None
 is_running = False
+initialized = False
 
 # ========== وظائف المساعدة ==========
+def init_bot():
+    """تهيئة البوت مرة واحدة فقط"""
+    global bot_instance, initialized
+    
+    if bot_instance is None:
+        try:
+            bot_instance = Bot(token=TELEGRAM_TOKEN)
+            logger.info("✅ تم إنشاء كائن البوت")
+        except Exception as e:
+            logger.error(f"❌ خطأ في إنشاء البوت: {e}")
+            return False
+    
+    return True
+
 async def send_message_to_user(chat_id, text):
-    """إرسال رسالة إلى مستخدم (للأوامر)"""
+    """إرسال رسالة إلى مستخدم"""
     try:
         if bot_instance is None:
-            bot_instance = Bot(token=TELEGRAM_TOKEN)
+            if not init_bot():
+                return False
         
         await bot_instance.send_message(
             chat_id=chat_id,
@@ -128,7 +144,8 @@ async def send_dhikr_to_all(text):
     """إرسال ذكر إلى جميع المجموعات"""
     try:
         if bot_instance is None:
-            bot_instance = Bot(token=TELEGRAM_TOKEN)
+            if not init_bot():
+                return False
         
         success_count = 0
         for group_id in GROUPS:
@@ -156,7 +173,6 @@ async def check_and_send_dhikr():
         try:
             now = datetime.now(TIMEZONE)
             current_time = now.time()
-            logger.debug(f"فحص الوقت: {current_time}")
             
             # أذكار الصباح 8:30
             if current_time.hour == MORNING_TIME.hour and current_time.minute == MORNING_TIME.minute:
@@ -183,7 +199,6 @@ async def check_and_send_dhikr():
                 await send_dhikr_to_all(SLEEP_DHIKR)
                 logger.info("✅ تم إرسال ذكر النوم لجميع المجموعات")
             
-            # انتظر دقيقة قبل الفحص التالي
             await asyncio.sleep(60)
             
         except Exception as e:
@@ -191,7 +206,7 @@ async def check_and_send_dhikr():
             await asyncio.sleep(60)
 
 def start_scheduler():
-    """بدء جدولة الأذكار في خيط منفصل"""
+    """بدء جدولة الأذكار"""
     global is_running
     
     if not is_running:
@@ -200,121 +215,129 @@ def start_scheduler():
         asyncio.set_event_loop(loop)
         loop.run_until_complete(check_and_send_dhikr())
 
-# ========== أوامر البوت ==========
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة أمر /start"""
-    user_id = update.effective_user.id
-    chat_id = update.effective_chat.id
-    user_name = update.effective_user.first_name or "المستخدم"
-    
-    # معرفة إذا كانت المحادثة خاصة أو جماعية
-    chat_type = update.effective_chat.type
-    
-    logger.info(f"📩 أمر /start من: {user_id} ({user_name}) في: {chat_type} (chat_id: {chat_id})")
-    
-    if chat_type == "private":
-        # في الخاص - يرد على الجميع (رسالة مختصرة)
-        response_text = (
-            "🤖 بوت أذكار الصباح والمساء\n\n"
-            "✅ تم تفعيل الإشعارات اليومية\n"
-            "⏰ مواعيد الإذكار:\n"
-            "• الصباح: 8:30 صباحاً\n"
-            "• المساء: 4:00 مساءً\n\n"
-            "🤲 لا تنسوا الدعاء لمن كان سبباً في هذا الخير\n"
-            "🛠️ الصانع: @Mik_emm"
-        )
+# ========== معالجة الأوامر مباشرة ==========
+async def handle_start_command(update_data):
+    """معالجة أمر /start مباشرة"""
+    try:
+        if bot_instance is None:
+            if not init_bot():
+                return
         
-        await update.message.reply_text(response_text, parse_mode='Markdown')
+        # إنشاء كائن Update من البيانات
+        update = Update.de_json(update_data, bot_instance)
         
-        # إذا كان أدمن في الخاص، أرسل رسالة إضافية
-        if user_id == ADMIN_ID:
-            await update.message.reply_text(
-                "⚙️ *وضع الأدمن*\n"
-                "يمكنك استخدام:\n"
-                "• /status - لعرض حالة البوت\n"
-                "• /help - للمساعدة\n\n"
-                "✅ البوت يعمل وجدولة الأذكار نشطة.",
-                parse_mode='Markdown'
-            )
+        if update and update.message:
+            user_id = update.message.from_user.id
+            chat_id = update.message.chat.id
+            user_name = update.message.from_user.first_name or "المستخدم"
+            chat_type = update.message.chat.type
+            command_text = update.message.text
             
-            # بدء الجدولة إذا لم تكن تعمل
-            global scheduler_thread
-            if scheduler_thread is None or not scheduler_thread.is_alive():
-                scheduler_thread = threading.Thread(target=start_scheduler, daemon=True)
-                scheduler_thread.start()
-                logger.info("✅ تم تشغيل جدولة الأذكار عبر أمر /start من الأدمن في الخاص")
+            logger.info(f"📩 أمر {command_text} من: {user_id} ({user_name}) في: {chat_type}")
+            
+            if chat_type == "private":
+                # في الخاص - يرد على الجميع
+                response_text = (
+                    "🤖 بوت أذكار الصباح والمساء\n\n"
+                    "✅ تم تفعيل الإشعارات اليومية\n"
+                    "⏰ مواعيد الإذكار:\n"
+                    "• الصباح: 8:30 صباحاً\n"
+                    "• المساء: 4:00 مساءً\n\n"
+                    "🤲 لا تنسوا الدعاء لمن كان سبباً في هذا الخير\n"
+                    "🛠️ الصانع: @Mik_emm"
+                )
+                
+                await bot_instance.send_message(
+                    chat_id=chat_id,
+                    text=response_text,
+                    parse_mode='Markdown'
+                )
+                
+                # إذا كان أدمن
+                if user_id == ADMIN_ID:
+                    await bot_instance.send_message(
+                        chat_id=chat_id,
+                        text="⚙️ *وضع الأدمن*\n"
+                             "✅ البوت يعمل وجدولة الأذكار نشطة.",
+                        parse_mode='Markdown'
+                    )
+                    
+                    # بدء الجدولة إذا لم تكن تعمل
+                    global scheduler_thread
+                    if scheduler_thread is None or not scheduler_thread.is_alive():
+                        scheduler_thread = threading.Thread(target=start_scheduler, daemon=True)
+                        scheduler_thread.start()
+                        logger.info("✅ تم تشغيل جدولة الأذكار")
+            
+            elif chat_type in ["group", "supergroup"]:
+                # في المجموعة - يرد فقط على الأدمن
+                if user_id == ADMIN_ID:
+                    response_text = (
+                        "🤖 بوت أذكار الصباح والمساء\n\n"
+                        "✅ تم تفعيل الإشعارات اليومية\n"
+                        "⏰ مواعيد الإذكار:\n"
+                        "• الصباح: 8:30 صباحاً\n"
+                        "• المساء: 4:00 مساءً\n\n"
+                        "🤲 لا تنسوا الدعاء لمن كان سبباً في هذا الخير\n"
+                        "🛠️ الصانع: @Mik_emm"
+                    )
+                    
+                    await bot_instance.send_message(
+                        chat_id=chat_id,
+                        text=response_text,
+                        parse_mode='Markdown'
+                    )
+                    
+                    # بدء الجدولة إذا لم تكن تعمل
+                    if scheduler_thread is None or not scheduler_thread.is_alive():
+                        scheduler_thread = threading.Thread(target=start_scheduler, daemon=True)
+                        scheduler_thread.start()
+                        logger.info("✅ تم تشغيل جدولة الأذكار من المجموعة")
     
-    elif chat_type in ["group", "supergroup"]:
-        # في المجموعة - يرد فقط على الأدمن (رسالة مختصرة)
-        if user_id == ADMIN_ID:
+    except Exception as e:
+        logger.error(f"❌ خطأ في معالجة الأمر: {e}")
+
+async def handle_help_command(update_data):
+    """معالجة أمر /help مباشرة"""
+    try:
+        if bot_instance is None:
+            if not init_bot():
+                return
+        
+        update = Update.de_json(update_data, bot_instance)
+        
+        if update and update.message:
+            chat_id = update.message.chat.id
+            chat_type = update.message.chat.type
+            
             response_text = (
-                "🤖 بوت أذكار الصباح والمساء\n\n"
-                "✅ تم تفعيل الإشعارات اليومية\n"
-                "⏰ مواعيد الإذكار:\n"
-                "• الصباح: 8:30 صباحاً\n"
-                "• المساء: 4:00 مساءً\n\n"
-                "🤲 لا تنسوا الدعاء لمن كان سبباً في هذا الخير\n"
+                "• /start - بدء البوت وعرض المعلومات\n"
+                "• /help - عرض هذه الرسالة\n"
                 "🛠️ الصانع: @Mik_emm"
             )
             
-            await update.message.reply_text(response_text, parse_mode='Markdown')
-            
-            # بدء الجدولة إذا لم تكن تعمل
-            if scheduler_thread is None or not scheduler_thread.is_alive():
-                scheduler_thread = threading.Thread(target=start_scheduler, daemon=True)
-                scheduler_thread.start()
-                logger.info("✅ تم تشغيل جدولة الأذكار عبر أمر /start من الأدمن في المجموعة")
-        
-        else:
-            # في المجموعة - لا يرد على الأعضاء العاديين
-            logger.info(f"⏭️ تخطي رد على عضو عادي في المجموعة: {user_id} ({user_name})")
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة أمر /help"""
-    chat_type = update.effective_chat.type
-    
-    if chat_type == "private":
-        # في الخاص - يرد للجميع
-        await update.message.reply_text(
-            "• /start - بدء البوت وعرض المعلومات\n"
-            "• /help - عرض هذه الرسالة\n"
-            "• /status - حالة البوت\n\n"
-            "🛠️ الصانع: @Mik_emm",
-            parse_mode='Markdown'
-        )
-    elif chat_type in ["group", "supergroup"]:
-        # في المجموعة - يرد فقط للأدمن
-        user_id = update.effective_user.id
-        if user_id == ADMIN_ID:
-            await update.message.reply_text(
-                "• /start - معلومات البوت\n"
-                "• /help - هذه الرسالة\n"
-                "• /status - حالة البوت\n\n"
-                "🛠️ الصانع: @Mik_emm",
+            await bot_instance.send_message(
+                chat_id=chat_id,
+                text=response_text,
                 parse_mode='Markdown'
             )
+    
+    except Exception as e:
+        logger.error(f"❌ خطأ في معالجة /help: {e}")
 
-async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة أمر /status"""
-    global is_running
-    now = datetime.now(TIMEZONE)
-    chat_type = update.effective_chat.type
-    
-    if chat_type == "private":
-        # في الخاص - يرد للجميع
-        status_text = (
-            f"✅ البوت: {'يعمل 🟢' if is_running else 'متوقف 🔴'}\n"
-            f"⏰ التوقيت: {now.strftime('%H:%M:%S')}\n"
-            f"📅 التاريخ: {now.strftime('%Y-%m-%d')}\n"
-            f"🛠️ الصانع: @Mik_emm"
-        )
+async def handle_status_command(update_data):
+    """معالجة أمر /status مباشرة"""
+    try:
+        if bot_instance is None:
+            if not init_bot():
+                return
         
-        await update.message.reply_text(status_text, parse_mode='Markdown')
-    
-    elif chat_type in ["group", "supergroup"]:
-        # في المجموعة - يرد فقط للأدمن
-        user_id = update.effective_user.id
-        if user_id == ADMIN_ID:
+        update = Update.de_json(update_data, bot_instance)
+        
+        if update and update.message:
+            chat_id = update.message.chat.id
+            now = datetime.now(TIMEZONE)
+            
             status_text = (
                 f"✅ البوت: {'يعمل 🟢' if is_running else 'متوقف 🔴'}\n"
                 f"⏰ التوقيت: {now.strftime('%H:%M:%S')}\n"
@@ -322,56 +345,14 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🛠️ الصانع: @Mik_emm"
             )
             
-            await update.message.reply_text(status_text, parse_mode='Markdown')
-
-# ========== تهيئة البوت ==========
-def setup_bot():
-    """تهيئة البوت وإعداد الأوامر"""
-    global application_instance, bot_instance
+            await bot_instance.send_message(
+                chat_id=chat_id,
+                text=status_text,
+                parse_mode='Markdown'
+            )
     
-    if application_instance is None:
-        try:
-            # إنشاء التطبيق
-            application_instance = Application.builder().token(TELEGRAM_TOKEN).build()
-            
-            # إضافة الأوامر
-            application_instance.add_handler(CommandHandler("start", start_command))
-            application_instance.add_handler(CommandHandler("help", help_command))
-            application_instance.add_handler(CommandHandler("status", status_command))
-            
-            # إنشاء كائن البوت
-            bot_instance = Bot(token=TELEGRAM_TOKEN)
-            
-            # تعيين ويب هوك
-            async def set_webhook_async():
-                await bot_instance.set_webhook(WEBHOOK_URL)
-                logger.info(f"✅ تم تعيين ويب هوك: {WEBHOOK_URL}")
-                
-                # إرسال رسالة تأكيد للأدمن
-                await bot_instance.send_message(
-                    chat_id=ADMIN_ID,
-                    text="🤖 بوت الأذكار يعمل الآن\n"
-                         "✅ تم تهيئة البوت بنجاح\n"
-                         "🛠️ الصانع: @Mik_emm",
-                    parse_mode='Markdown'
-                )
-            
-            # تشغيل في خيط منفصل
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(set_webhook_async())
-            
-            # بدء الجدولة
-            global scheduler_thread, is_running
-            if scheduler_thread is None or not scheduler_thread.is_alive():
-                scheduler_thread = threading.Thread(target=start_scheduler, daemon=True)
-                scheduler_thread.start()
-                is_running = True
-            
-            logger.info("✅ تم تهيئة البوت بنجاح")
-            
-        except Exception as e:
-            logger.error(f"❌ خطأ في تهيئة البوت: {e}")
+    except Exception as e:
+        logger.error(f"❌ خطأ في معالجة /status: {e}")
 
 # ========== مسارات Flask ==========
 @app.route('/')
@@ -385,7 +366,7 @@ def home():
         "bot_running": is_running,
         "timezone": "Africa/Algiers",
         "server_time": now.strftime("%Y-%m-%d %H:%M:%S"),
-        "message": "البوت يعمل"
+        "message": "بوت الأذكار يعمل"
     })
 
 @app.route('/health')
@@ -402,35 +383,28 @@ def health_check():
 def webhook():
     """استقبال تحديثات ويب هوك من تليجرام"""
     try:
-        # تأكد من تهيئة البوت
-        if application_instance is None:
-            setup_bot()
-        
-        # تحويل JSON إلى كائن Update
         update_data = request.get_json()
         
-        if update_data:
-            logger.info(f"📩 بيانات ويب هوك مستلمة: {update_data.get('update_id')}")
-            
-            # معالجة التحديث
-            update = Update.de_json(update_data, application_instance.bot)
-            
-            # تمرير التحديث إلى المعالجين
-            application_instance.update_queue.put_nowait(update)
-            
-            # معالجة التحديث فوراً
-            async def process_update():
-                await application_instance.process_update(update)
-            
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(process_update())
-            
-            return jsonify({"status": "ok", "update_id": update.update_id})
-        else:
-            logger.warning("📭 استقبال ويب هوك بدون بيانات")
+        if not update_data:
             return jsonify({"status": "no_data"}), 400
+        
+        update_id = update_data.get('update_id')
+        logger.info(f"📩 استقبال ويب هوك: {update_id}")
+        
+        # فحص ما إذا كانت هناك رسالة
+        if 'message' in update_data and 'text' in update_data['message']:
+            message_text = update_data['message']['text'].lower()
             
+            # معالجة الأوامر مباشرة
+            if message_text.startswith('/start'):
+                asyncio.run(handle_start_command(update_data))
+            elif message_text.startswith('/help'):
+                asyncio.run(handle_help_command(update_data))
+            elif message_text.startswith('/status'):
+                asyncio.run(handle_status_command(update_data))
+        
+        return jsonify({"status": "ok", "update_id": update_id})
+        
     except Exception as e:
         logger.error(f"❌ خطأ في معالجة ويب هوك: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -439,14 +413,37 @@ def webhook():
 def start_bot_route():
     """بدء البوت عبر رابط الويب"""
     try:
-        setup_bot()
+        # تهيئة البوت
+        init_bot()
+        
+        # بدء الجدولة
+        global scheduler_thread, is_running
+        if scheduler_thread is None or not scheduler_thread.is_alive():
+            scheduler_thread = threading.Thread(target=start_scheduler, daemon=True)
+            scheduler_thread.start()
+            is_running = True
+        
+        # إرسال رسالة تأكيد للأدمن
+        async def send_confirmation():
+            if bot_instance:
+                await bot_instance.send_message(
+                    chat_id=ADMIN_ID,
+                    text="🤖 بوت الأذكار يعمل الآن\n"
+                         "✅ تم تهيئة البوت بنجاح\n"
+                         "🛠️ الصانع: @Mik_emm",
+                    parse_mode='Markdown'
+                )
+        
+        asyncio.run(send_confirmation())
         
         return jsonify({
             "success": True,
-            "message": "✅ تم تشغيل البوت بنجاح"
+            "message": "✅ تم تشغيل البوت بنجاح",
+            "schedule_started": True
         })
             
     except Exception as e:
+        logger.error(f"❌ خطأ في بدء البوت: {e}")
         return jsonify({
             "success": False,
             "message": f"❌ خطأ: {str(e)}"
@@ -457,8 +454,10 @@ def test_route():
     """اختبار البوت"""
     try:
         async def test_send():
-            test_bot = Bot(token=TELEGRAM_TOKEN)
-            await test_bot.send_message(
+            if not init_bot():
+                return
+            
+            await bot_instance.send_message(
                 chat_id=ADMIN_ID,
                 text="✅ اختبار البوت\n"
                      "الحالة: ✅ يعمل بنجاح\n"
@@ -466,19 +465,77 @@ def test_route():
                 parse_mode='Markdown'
             )
         
-        # تشغيل في خيط منفصل
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(test_send())
+        asyncio.run(test_send())
         
-        return jsonify({"success": True, "message": "✅ تم إرسال رسالة الاختبار للأدمن"})
+        return jsonify({"success": True, "message": "✅ تم إرسال رسالة الاختبار"})
     except Exception as e:
         return jsonify({"success": False, "message": f"❌ خطأ: {str(e)}"})
+
+@app.route('/set_webhook')
+def set_webhook_route():
+    """تعيين ويب هوك"""
+    try:
+        async def set_webhook():
+            if not init_bot():
+                return False
+            
+            await bot_instance.set_webhook(WEBHOOK_URL)
+            logger.info(f"✅ تم تعيين ويب هوك: {WEBHOOK_URL}")
+            return True
+        
+        success = asyncio.run(set_webhook())
+        
+        if success:
+            return jsonify({
+                "success": True,
+                "message": "✅ تم تعيين ويب هوك بنجاح",
+                "webhook_url": WEBHOOK_URL
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "message": "❌ فشل في تعيين ويب هوك"
+            })
+            
+    except Exception as e:
+        logger.error(f"❌ خطأ في تعيين ويب هوك: {e}")
+        return jsonify({
+            "success": False,
+            "message": f"❌ خطأ: {str(e)}"
+        })
 
 # ========== التشغيل الرئيسي ==========
 if __name__ == '__main__':
     # تهيئة البوت
-    setup_bot()
+    init_bot()
+    
+    # تعيين ويب هوك عند البدء
+    async def initial_setup():
+        if bot_instance:
+            await bot_instance.set_webhook(WEBHOOK_URL)
+            logger.info(f"✅ تم تعيين ويب هوك عند البدء: {WEBHOOK_URL}")
+            
+            # إرسال رسالة بدء التشغيل
+            await bot_instance.send_message(
+                chat_id=ADMIN_ID,
+                text="🤖 بوت الأذكار يعمل الآن\n"
+                     "✅ تم بدء تشغيل البوت\n"
+                     "🛠️ الصانع: @Mik_emm",
+                parse_mode='Markdown'
+            )
+    
+    # تشغيل الإعداد الأولي
+    try:
+        asyncio.run(initial_setup())
+    except Exception as e:
+        logger.error(f"❌ خطأ في الإعداد الأولي: {e}")
+    
+    # بدء الجدولة
+    if scheduler_thread is None or not scheduler_thread.is_alive():
+        scheduler_thread = threading.Thread(target=start_scheduler, daemon=True)
+        scheduler_thread.start()
+        is_running = True
+        logger.info("✅ بدء جدولة الأذكار")
     
     # تشغيل خادم Flask
     port = int(os.environ.get('PORT', 10000))
