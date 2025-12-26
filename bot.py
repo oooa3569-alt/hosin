@@ -1,203 +1,334 @@
 import os
 import logging
 import asyncio
-from flask import Flask, request
-from telegram import Update, Bot
+import threading
+from datetime import datetime, time
+import pytz
+from flask import Flask, request, jsonify
+from telegram import Bot, Update
 from telegram.ext import Application, CommandHandler, ContextTypes
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
 
-# ================== CONFIG ==================
-BOT_TOKEN = "8260168982:AAEy-YQDWa-yTqJKmsA_yeSuNtZb8qNeHAI"
-WEBHOOK_PATH = "/webhook"
-WEBHOOK_URL = "https://hosin-q20k.onrender.com" + WEBHOOK_PATH
-OWNER_ID = 7635779264
-TIMEZONE = "Africa/Cairo"
-# ===========================================
+# ========== إعدادات البوت ==========
+TELEGRAM_TOKEN = "8260168982:AAEy-YQDWa-yTqJKmsA_yeSuNtZb8qNeHAI"
+ADMIN_ID = 7635779264
+GROUP_ID = "-1002225164483"
 
+# ========== التوقيتات (توقيت الرياض) ==========
+TIMEZONE = pytz.timezone('Asia/Riyadh')
+MORNING_TIME = time(8, 30)    # 8:30 صباحاً
+NOON_DHIKR_TIME = time(12, 0)  # 12:00 ظهراً
+EVENING_TIME = time(16, 0)    # 4:00 مساءً
+EVENING_DHIKR2_TIME = time(18, 0)  # 6:00 مساءً
+NIGHT_TIME = time(23, 0)      # 11:00 مساءً
+
+# ========== الأذكار الكاملة ==========
+
+MORNING_DHIKR = """🌅 *أذكار الصباح*
+
+*أعوذ بكلمات الله التامات من شر ما خلق* (٣ مرات)
+
+*اللهم صل وسلم على نبينا محمد* (٤ مرات)
+
+*اللهم أنت ربي لا إله إلا أنت، خلقتني وأنا عبدك، وأنا على عهدك ووعدك ما استطعت، أعوذ بك من شر ما صنعت، أبوء لك بنعمتك علي وأبوء بذنبي فاغفر لي فإنه لا يغفر الذنوب إلا أنت*
+
+*بسم الله الذي لا يضر مع اسمه شيء في الأرض ولا في السماء وهو السميع العليم* (٣ مرات)
+
+*رضيت بالله ربا وبالإسلام دينا وبمحمد صلى الله عليه وسلم نبيا* (٣ مرات)
+
+*اللهم صل وسلم وبارك على نبينا محمد* (٢ مرات)
+
+*أصبحنا وأصبح الملك لله والحمد لله، لا إله إلا الله وحده لا شريك له، له الملك وله الحمد، وهو على كل شيء قدير، رب أسألك خير ما في هذا اليوم وخير ما بعده، وأعوذ بك من شر ما في هذا اليوم وشر ما بعده، رب أعوذ بك من الكسل وسوء الكبر، رب أعوذ بك من عذاب في النار وعذاب في القبر*
+
+*اللهم ما أصبح بي من نعمة أو بأحد من خلقك فمنك وحدك لا شريك لك، فلك الحمد ولك الشكر*
+
+*اللهم عالم الغيب والشهادة فاطر السماوات والأرض رب كل شيء ومليكه، أشهد أن لا إله إلا أنت، أعوذ بك من شر نفسي ومن شر الشيطان وشركه، وأن أقترف على نفسي سوءا أو أجره إلى مسلم*
+
+*لا إله إلا الله وحده لا شريك له، له الملك وله الحمد، وهو على كل شيء قدير*
+
+🛠️ *الصانع:* @Mik_emm
+💡 *فكرة:* @mohamedelhocine"""
+
+EVENING_DHIKR = """🌇 *أذكار المساء*
+
+*أعوذ بكلمات الله التامات من شر ما خلق* (٣ مرات)
+
+*اللهم صل وسلم على نبينا محمد* (٤ مرات)
+
+*اللهم أنت ربي لا إله إلا أنت، خلقتني وأنا عبدك، وأنا على عهدك ووعدك ما استطعت، أعوذ بك من شر ما صنعت، أبوء لك بنعمتك علي وأبوء بذنبي فاغفر لي فإنه لا يغفر الذنوب إلا أنت*
+
+*بسم الله الذي لا يضر مع اسمه شيء في الأرض ولا في السماء وهو السميع العليم* (٣ مرات)
+
+*رضيت بالله ربا وبالإسلام دينا وبمحمد صلى الله عليه وسلم نبيا* (٣ مرات)
+
+*اللهم صل وسلم وبارك على نبينا محمد* (٢ مرات)
+
+*أمسينا وأمسى الملك لله والحمد لله، لا إله إلا الله وحده لا شريك له، له الملك وله الحمد، وهو على كل شيء قدير، رب أسألك خير ما في هذه الليلة وخير ما بعدها، وأعوذ بك من شر ما في هذه الليلة وشر ما بعدها، رب أعوذ بك من الكسل وسوء الكبر، رب أعوذ بك من عذاب في النار وعذاب في القبر*
+
+*اللهم ما أمسى بي من نعمة أو بأحد من خلقك فمنك وحدك لا شريك لك، فلك الحمد ولك الشكر*
+
+*اللهم عالم الغيب والشهادة فاطر السماوات والأرض رب كل شيء ومليكه، أشهد أن لا إله إلا أنت، أعوذ بك من شر نفسي ومن شر الشيطان وشركه، وأن أقترف على نفسي سوءا أو أجره إلى مسلم*
+
+*لا إله إلا الله وحده لا شريك له، له الملك وله الحمد، وهو على كل شيء قدير*
+
+🛠️ *الصانع:* @Mik_emm
+💡 *فكرة:* @mohamedelhocine"""
+
+SLEEP_DHIKR = """🌙 *نام وأنت مغفور الذنب*
+
+قال رسول الله ﷺ:
+*"من قال حين يأوي إلى فراشه:*
+'لا إله إلا الله وحده لا شريك له، له الملك وله الحمد، وهو على كل شيء قدير، لا حول ولا قوة إلا بالله، سبحان الله والحمد لله ولا إله إلا الله والله أكبر'
+
+*غفر الله ذنوبه أو خطاياه وإن كانت مثل زبد البحر."* 🤎🌗
+
+🛠️ *الصانع:* @Mik_emm
+💡 *فكرة:* @mohamedelhocine"""
+
+REMEMBER_DHIKR = """📿 *واذكر ربك إذا نسيت*
+
+سُبحان الله
+الحمدلله  
+الله أكبر
+أستغفر الله
+لا إله إلا الله
+لاحول ولا قوة إلا بالله
+سُبحان الله وبحمده
+سُبحان الله العظيم
+اللَّهُمَّ صلِّ وسلِم على نبينا محمد
+لا إله إلا أنت سُبحانك إني كنت من الظالمين
+
+🛠️ *الصانع:* @Mik_emm
+💡 *فكرة:* @mohamedelhocine"""
+
+# ========== إنشاء التطبيق ==========
+app = Flask(__name__)
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__)
+# ========== متغيرات عامة ==========
+bot = None
+scheduler_thread = None
+is_running = False
 
-# حل المشكلة: إنشاء Application بطريقة مختلفة
-try:
-    # الطريقة الجديدة للتهيئة
-    application = Application.builder().token(BOT_TOKEN).build()
-except TypeError:
-    # إذا فشلت، نجرب طريقة بديلة
-    from telegram.ext import Updater
-    application = None  # سنستخدم Updater بدلاً من Application
+# ========== وظائف المساعدة ==========
+async def send_dhikr(chat_id, text):
+    """إرسال ذكر إلى المجموعة"""
+    try:
+        await bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            parse_mode='Markdown'
+        )
+        logger.info(f"✅ تم إرسال ذكر إلى المجموعة {chat_id}")
+        return True
+    except Exception as e:
+        logger.error(f"❌ خطأ في إرسال الذكر: {e}")
+        return False
+
+async def send_to_admin(message):
+    """إرسال رسالة للأدمن"""
+    try:
+        await bot.send_message(
+            chat_id=ADMIN_ID,
+            text=message,
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        logger.error(f"❌ خطأ في إرسال رسالة للأدمن: {e}")
+
+async def check_and_send_dhikr():
+    """فحص الوقت وإرسال الأذكار"""
+    global is_running
     
-bot = Bot(BOT_TOKEN)
-scheduler = BackgroundScheduler(timezone=TIMEZONE)
-
-active_chats = set()
-
-# ================== ADHKAR ==================
-MORNING_DUA = "🌅 أذكار الصباح\n\nسبحان الله وبحمده سبحان الله العظيم"
-EVENING_DUA = "🌙 أذكار المساء\n\nسبحان الله وبحمده سبحان الله العظيم"
-# ===========================================
-
-# ================== COMMAND ==================
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
-    user = update.effective_user
-
-    if chat.type == "private":
-        active_chats.add(chat.id)
-        logger.info(f"Private chat added: {chat.id}")
-    elif chat.type in ("group", "supergroup"):
-        if user.id != OWNER_ID:
-            await update.message.reply_text("❌ هذا البوت للمالك فقط في المجموعات!")
-            return
-        active_chats.add(chat.id)
-        logger.info(f"Group chat added: {chat.id}")
-
-    await update.message.reply_text(
-        "🤖 بوت أذكار الصباح والمساء\n\n"
-        "✅ تم تفعيل الإشعارات اليومية\n"
-        "⏰ مواعيد الإذكار:\n"
-        "• الصباح: 8:30 صباحاً\n"
-        "• المساء: 4:00 مساءً\n\n"
-        "🤲 لا تنسوا الدعاء لمن كان سبباً في هذا الخير\n"
-        "🛠️ الصانع: @Mik_emm"
-    )
-
-# ================== SENDING ==================
-async def broadcast(text):
-    if not active_chats:
-        logger.warning("No active chats to broadcast")
-        return
-    
-    success = 0
-    failed = 0
-    
-    for chat_id in list(active_chats):
+    while is_running:
         try:
-            await bot.send_message(chat_id, text)
-            success += 1
-            await asyncio.sleep(0.5)  # تقليل الضغط
+            now = datetime.now(TIMEZONE)
+            current_time = now.time()
+            
+            # أذكار الصباح 8:30
+            if current_time.hour == MORNING_TIME.hour and current_time.minute == MORNING_TIME.minute:
+                await send_dhikr(GROUP_ID, MORNING_DHIKR)
+                await send_to_admin("✅ تم إرسال أذكار الصباح")
+            
+            # ذكر "واذكر ربك" 12:00
+            elif current_time.hour == NOON_DHIKR_TIME.hour and current_time.minute == NOON_DHIKR_TIME.minute:
+                await send_dhikr(GROUP_ID, REMEMBER_DHIKR)
+                await send_to_admin("✅ تم إرسال ذكر 'واذكر ربك' (الظهر)")
+            
+            # أذكار المساء 4:00
+            elif current_time.hour == EVENING_TIME.hour and current_time.minute == EVENING_TIME.minute:
+                await send_dhikr(GROUP_ID, EVENING_DHIKR)
+                await send_to_admin("✅ تم إرسال أذكار المساء")
+            
+            # ذكر "واذكر ربك" 6:00
+            elif current_time.hour == EVENING_DHIKR2_TIME.hour and current_time.minute == EVENING_DHIKR2_TIME.minute:
+                await send_dhikr(GROUP_ID, REMEMBER_DHIKR)
+                await send_to_admin("✅ تم إرسال ذكر 'واذكر ربك' (المساء)")
+            
+            # ذكر النوم 11:00
+            elif current_time.hour == NIGHT_TIME.hour and current_time.minute == NIGHT_TIME.minute:
+                await send_dhikr(GROUP_ID, SLEEP_DHIKR)
+                await send_to_admin("✅ تم إرسال ذكر النوم")
+            
+            # انتظر دقيقة قبل الفحص التالي
+            await asyncio.sleep(60)
+            
         except Exception as e:
-            logger.error(f"فشل الإرسال لـ {chat_id}: {e}")
-            active_chats.discard(chat_id)
-            failed += 1
+            logger.error(f"❌ خطأ في الجدولة: {e}")
+            await asyncio.sleep(60)
+
+def start_scheduler():
+    """بدء جدولة الأذكار في خيط منفصل"""
+    global is_running
     
-    logger.info(f"✅ البث: {success} نجاح، {failed} فشل")
+    if not is_running:
+        is_running = True
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(check_and_send_dhikr())
 
-def send_morning():
-    logger.info("🚀 إرسال أذكار الصباح...")
+# ========== مسارات Flask ==========
+@app.route('/')
+def home():
+    """الصفحة الرئيسية - نبض الحياة"""
+    return jsonify({
+        "status": "online",
+        "service": "Dhikr Bot",
+        "admin": ADMIN_ID,
+        "group": GROUP_ID,
+        "creator": "@Mik_emm",
+        "idea_owner": "@mohamedelhocine",
+        "next_check": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
+    })
+
+@app.route('/health')
+def health_check():
+    """فحص صحة البوت"""
+    return jsonify({
+        "status": "healthy",
+        "bot_running": is_running,
+        "timestamp": datetime.now().isoformat()
+    })
+
+@app.route('/start_bot')
+def start_bot_route():
+    """بدء البوت (للأدمن فقط)"""
     try:
-        asyncio.run(broadcast(MORNING_DUA))
+        user_id = request.args.get('user_id', type=int)
+        
+        if user_id == ADMIN_ID:
+            global bot, scheduler_thread
+            
+            # تهيئة البوت
+            bot = Bot(token=TELEGRAM_TOKEN)
+            
+            # بدء الجدولة في خيط منفصل
+            if scheduler_thread is None or not scheduler_thread.is_alive():
+                scheduler_thread = threading.Thread(target=start_scheduler, daemon=True)
+                scheduler_thread.start()
+                
+                # إرسال رسالة تأكيد
+                asyncio.run(send_to_admin(
+                    "🤖 *تم تشغيل بوت الأذكار بنجاح!*\n\n"
+                    "✅ تم تفعيل الإشعارات اليومية\n"
+                    "⏰ *مواعيد الأذكار:*\n"
+                    "• الصباح: 8:30 صباحاً\n"
+                    "• واذكر ربك: 12:00 ظهراً\n"
+                    "• المساء: 4:00 مساءً\n"
+                    "• واذكر ربك: 6:00 مساءً\n"
+                    "• النوم: 11:00 مساءً\n\n"
+                    "🤲 لا تنسوا الدعاء لمن كان سبباً في هذا الخير\n"
+                    "🛠️ الصانع: @Mik_emm"
+                ))
+                
+                return jsonify({
+                    "success": True,
+                    "message": "✅ تم تشغيل البوت بنجاح",
+                    "schedule_started": True
+                })
+            else:
+                return jsonify({
+                    "success": False,
+                    "message": "⚠️ البوت يعمل بالفعل"
+                })
+        else:
+            return jsonify({
+                "success": False,
+                "message": "❌ غير مصرح لك بتشغيل البوت"
+            })
+            
     except Exception as e:
-        logger.error(f"❌ خطأ في أذكار الصباح: {e}")
+        return jsonify({
+            "success": False,
+            "message": f"❌ خطأ: {str(e)}"
+        })
 
-def send_evening():
-    logger.info("🚀 إرسال أذكار المساء...")
+@app.route('/test_send')
+def test_send():
+    """اختبار إرسال ذكر (للأدمن فقط)"""
     try:
-        asyncio.run(broadcast(EVENING_DUA))
+        user_id = request.args.get('user_id', type=int)
+        
+        if user_id == ADMIN_ID:
+            async def test():
+                bot_test = Bot(token=TELEGRAM_TOKEN)
+                await bot_test.send_message(
+                    chat_id=ADMIN_ID,
+                    text="✅ *اختبار البوت*\n\nهذه رسالة اختبارية من بوت الأذكار.\n\nالحالة: ✅ يعمل بنجاح\n🛠️ الصانع: @Mik_emm",
+                    parse_mode='Markdown'
+                )
+            
+            asyncio.run(test())
+            return jsonify({"success": True, "message": "✅ تم إرسال رسالة الاختبار"})
+        else:
+            return jsonify({"success": False, "message": "❌ غير مصرح"})
     except Exception as e:
-        logger.error(f"❌ خطأ في أذكار المساء: {e}")
+        return jsonify({"success": False, "message": f"❌ خطأ: {str(e)}"})
 
-def heartbeat():
-    logger.info(f"❤️ البوت يعمل، المحادثات النشطة: {len(active_chats)}")
-    logger.info(f"⏰ المهام المجدولة: {len(scheduler.get_jobs())}")
-
-# ================== WEBHOOK ==================
-@app.route(WEBHOOK_PATH, methods=["POST"])
-def webhook():
+# ========== تشغيل البوت عند البدء ==========
+def initialize_bot():
+    """تهيئة البوت عند بدء التشغيل"""
+    global bot
     try:
-        json_data = request.get_json(force=True)
-        update = Update.de_json(json_data, bot)
+        bot = Bot(token=TELEGRAM_TOKEN)
+        logger.info("✅ تم تهيئة بوت التليجرام")
         
-        # معالجة الأوامر يدوياً
-        if update.message and update.message.text:
-            if update.message.text.startswith('/start'):
-                asyncio.run(start_command(update, None))
+        # إرسال رسالة بدء التشغيل للأدمن
+        async def send_startup_message():
+            await send_to_admin(
+                "🔄 *بوت الأذكار يعمل الآن*\n\n"
+                "✅ تم بدء تشغيل البوت على السيرفر\n"
+                "⏰ جاهز لإرسال الأذكار تلقائياً\n\n"
+                "📅 *مواعيد الأذكار:*\n"
+                "• 8:30 صباحاً - أذكار الصباح\n"
+                "• 12:00 ظهراً - واذكر ربك\n"
+                "• 4:00 مساءً - أذكار المساء\n"
+                "• 6:00 مساءً - واذكر ربك\n"
+                "• 11:00 مساءً - ذكر النوم\n\n"
+                "🔗 رابط البوت: https://hosin-q20k.onrender.com\n"
+                "🛠️ الصانع: @Mik_emm\n"
+                "💡 فكرة: @mohamedelhocine"
+            )
         
-        return "OK", 200
-    except Exception as e:
-        logger.error(f"❌ خطأ في webhook: {e}")
-        return "Error", 400
-
-@app.route("/")
-def index():
-    return f"""
-    <h1>🤖 بوت أذكار الصباح والمساء</h1>
-    <p>✅ البوت يعمل بنجاح</p>
-    <p>👥 المحادثات النشطة: {len(active_chats)}</p>
-    <p>⏰ المهام المجدولة: {len(scheduler.get_jobs())}</p>
-    <p>🔗 Webhook: {WEBHOOK_URL}</p>
-    <hr>
-    <p>🛠️ الصانع: @Mik_emm</p>
-    """
-
-@app.route("/status")
-def status():
-    return {
-        "status": "running",
-        "active_chats": len(active_chats),
-        "jobs": len(scheduler.get_jobs()),
-        "timezone": TIMEZONE,
-        "bot_username": bot.get_me().username if hasattr(bot, 'get_me') else "Unknown"
-    }
-
-@app.route("/send_test")
-def send_test():
-    """لاختبار البث"""
-    asyncio.run(broadcast("✅ رسالة اختبار من البوت"))
-    return "✅ تم إرسال رسالة الاختبار"
-
-# ================== MAIN ==================
-def main():
-    try:
-        logger.info("🚀 بدء تشغيل البوت...")
+        asyncio.run(send_startup_message())
         
-        # إعداد المهام المجدولة
-        scheduler.add_job(
-            send_morning,
-            trigger=CronTrigger(hour=6, minute=30, timezone=TIMEZONE),  # 8:30 بتوقيت مصر
-            id="morning_athkar",
-            replace_existing=True
-        )
-        
-        scheduler.add_job(
-            send_evening,
-            trigger=CronTrigger(hour=16, minute=0, timezone=TIMEZONE),  # 4:00 مساءً
-            id="evening_athkar",
-            replace_existing=True
-        )
-        
-        scheduler.add_job(
-            heartbeat,
-            "interval",
-            minutes=5,
-            id="heartbeat",
-            replace_existing=True
-        )
-        
-        scheduler.start()
-        logger.info(f"✅ تم جدولة {len(scheduler.get_jobs())} مهمة")
-        
-        # إعداد ويب هوك
-        bot.set_webhook(WEBHOOK_URL)
-        logger.info(f"✅ تم تعيين Webhook: {WEBHOOK_URL}")
-        
-        # عرض معلومات البوت
-        bot_info = bot.get_me()
-        logger.info(f"🤖 البوت: @{bot_info.username} ({bot_info.id})")
-        
-        # تشغيل الخادم
-        port = int(os.environ.get("PORT", 10000))
-        logger.info(f"🌐 تشغيل الخادم على المنفذ {port}")
-        app.run(host="0.0.0.0", port=port, debug=False)
+        # بدء الجدولة تلقائياً
+        global scheduler_thread
+        scheduler_thread = threading.Thread(target=start_scheduler, daemon=True)
+        scheduler_thread.start()
+        logger.info("✅ بدء جدولة الأذكار تلقائياً")
         
     except Exception as e:
-        logger.error(f"❌ خطأ فادح: {e}")
-        scheduler.shutdown()
+        logger.error(f"❌ خطأ في تهيئة البوت: {e}")
 
-if __name__ == "__main__":
-    main()
+# ========== التشغيل الرئيسي ==========
+if __name__ == '__main__':
+    # تهيئة البوت
+    initialize_bot()
+    
+    # تشغيل خادم Flask
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port, debug=False)
