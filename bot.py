@@ -35,7 +35,7 @@ NIGHT_POST_IMG  = "https://github.com/oooa3569-alt/hosin/blob/main/photo_2025-12
 TIMEZONE = pytz.timezone("Africa/Algiers")
 
 # مواعيد الصور
-MORNING_TIME = dt_time(7, 0)   # 07:00 صباحاً
+MORNING_TIME = dt_time(6, 0)   # 07:00 صباحاً
 EVENING_TIME = dt_time(16, 0)  # 04:00 مساءً
 NIGHT_TIME   = dt_time(22, 0)  # 10:00 ليلاً (صورة الوتر والملك)
 
@@ -89,7 +89,7 @@ LA_HAWLA = "لا حول ولا قوة إلا بالله 🌿"
 START_RESPONSE = """🤖 **أهلاً بك في بوت  الاذكار للقنوات**
 
 ✅ الجدول اليومي:
-🌅 07:00 | اذكار الصباح
+🌅 06:00 | اذكار الصباح
 📿 11:00 | ذكر عام
 🌇 16:00 |  اذكار المساء
 📿 17:00 | ذكر عام
